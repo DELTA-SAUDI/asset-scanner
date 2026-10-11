@@ -1,8 +1,9 @@
+```html
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <title>DELTA Asset Scanner</title>
 
@@ -12,45 +13,74 @@
     body {
       font-family: Arial, sans-serif;
       text-align: center;
-      padding: 20px;
-      background: #f5f5f5;
+      padding: 16px;
+      margin: 0;
+      background: #f3f5f7;
+      color: #222;
     }
 
     h1 {
-      margin-bottom: 20px;
+      font-size: 25px;
+      margin: 20px 0;
     }
 
     #reader {
       width: 100%;
-      max-width: 500px;
-      margin: auto;
+      max-width: 450px;
+      margin: 15px auto;
       background: white;
-      border-radius: 10px;
-      padding: 10px;
-    }
-
-    #result {
-      margin-top: 20px;
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      text-align: right;
+      border-radius: 12px;
+      overflow: hidden;
     }
 
     input {
-      width: 90%;
+      box-sizing: border-box;
+      width: 95%;
       max-width: 350px;
-      padding: 12px;
+      padding: 13px;
       font-size: 18px;
       text-align: center;
-      margin-top: 15px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      margin: 8px;
     }
 
     button {
-      padding: 12px 25px;
-      font-size: 18px;
-      margin-top: 10px;
+      padding: 12px 22px;
+      margin: 6px;
+      font-size: 17px;
+      border: 0;
+      border-radius: 8px;
       cursor: pointer;
+      background: #1756a9;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+    }
+
+    #result {
+      max-width: 450px;
+      margin: 20px auto;
+      padding: 16px;
+      background: white;
+      border-radius: 10px;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .field {
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .error {
+      color: #b00020;
+    }
+
+    .success {
+      color: #176b35;
     }
   </style>
 </head>
@@ -59,104 +89,267 @@
 
   <h1>DELTA Asset Scanner</h1>
 
+  <p>وجّه الكاميرا إلى باركود الأصل وثبّت الجوال حتى تتم القراءة.</p>
+
   <div id="reader"></div>
 
-  <h3>أو أدخل كود الأصل يدويًا</h3>
+  <button id="startButton" onclick="startScanner()">
+    بدء المسح
+  </button>
+
+  <button id="stopButton" onclick="stopScanner()" disabled>
+    إيقاف الكاميرا
+  </button>
+
+  <hr>
+
+  <h3>البحث اليدوي</h3>
 
   <input
     id="code"
     type="text"
     placeholder="مثال: FUR-0001"
+    autocomplete="off"
   >
 
   <br>
 
-  <button onclick="searchManual()">
-    بحث
-  </button>
+  <button onclick="searchManual()">بحث عن الأصل</button>
 
   <div id="result">
-    امسح الباركود أو أدخل الكود يدويًا
+    جاهز للمسح أو البحث اليدوي.
   </div>
 
-
 <script>
+  const API_URL =
+    "https://script.google.com/macros/s/AKfycbwHWWJUQDvDUxFShoWWbHougyHjr0tFz3E38fX8e0bnTUpya-P0mXW_wF-RnIt6ClWV/exec";
 
-const API_URL =
-"https://script.google.com/macros/s/AKfycbwHWWJUQDvDUxFShoWWbHougyHjr0tFz3E38fX8e0bnTUpya-P0mXW_wF-RnIt6ClWV/exec";
+  let scanner = null;
+  let scannerRunning = false;
+  let scanLocked = false;
+  let lastScannedCode = "";
+  let scanCount = 0;
 
-
-function searchManual() {
-
-  const code =
-    document.getElementById("code").value.trim();
-
-  if (!code) {
-    alert("أدخل كود الأصل");
-    return;
+  function setMessage(message, className = "") {
+    const result = document.getElementById("result");
+    result.className = className;
+    result.textContent = message;
   }
 
-  searchAsset(code);
-}
+  async function startScanner() {
+    if (scannerRunning) return;
 
+    if (typeof Html5QrcodeScanner === "undefined") {
+      setMessage(
+        "تعذر تحميل مكتبة المسح. تحقق من اتصال الإنترنت ثم أعد فتح الصفحة.",
+        "error"
+      );
+      return;
+    }
 
-function searchAsset(code) {
+    scanLocked = false;
+    lastScannedCode = "";
+    scanCount = 0;
 
-  document.getElementById("result").innerHTML =
-    "<h3>جاري البحث...</h3>";
+    document.getElementById("startButton").disabled = true;
+    setMessage("جارٍ تشغيل الكاميرا...");
 
-  fetch(API_URL + "?code=" + encodeURIComponent(code))
-    .then(response => response.text())
-    .then(data => {
+    scanner = new Html5Qrcode("reader");
 
-      document.getElementById("result").innerHTML =
-        "<pre>" + data + "</pre>";
+    try {
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 8,
+          qrbox: { width: 280, height: 140 },
+          aspectRatio: 1.777778,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.QR_CODE
+          ]
+        },
+        onScanSuccess,
+        function () {
+          // تجاهل الإطارات التي لا تحتوي على باركود مقروء
+        }
+      );
 
-    })
-    .catch(error => {
+      scannerRunning = true;
+      document.getElementById("stopButton").disabled = false;
+      setMessage("الكاميرا تعمل. ثبّت الباركود داخل إطار المسح.");
 
-      document.getElementById("result").innerHTML =
-        "<h3>حدث خطأ</h3>" +
-        "<p>" + error + "</p>";
+    } catch (error) {
+      scannerRunning = false;
+      document.getElementById("startButton").disabled = false;
 
-    });
-}
+      setMessage(
+        "تعذر تشغيل الكاميرا. تأكد من السماح بالوصول إلى الكاميرا وفتح الموقع عبر HTTPS. " +
+        (error.message || ""),
+        "error"
+      );
+    }
+  }
 
+  function onScanSuccess(decodedText) {
+    if (scanLocked) return;
 
-function onScanSuccess(decodedText) {
+    const code = String(decodedText).trim().toUpperCase();
 
-  document.getElementById("code").value =
-    decodedText;
+    if (!code) return;
 
-  searchAsset(decodedText);
-}
+    if (code === lastScannedCode) {
+      scanCount++;
+    } else {
+      lastScannedCode = code;
+      scanCount = 1;
+    }
 
+    setMessage("تمت قراءة الكود، جارٍ تثبيته... " + scanCount + "/3");
 
-function onScanFailure(error) {
-  // تجاهل أخطاء البحث أثناء محاولة قراءة الباركود
-}
+    if (scanCount >= 3) {
+      scanLocked = true;
+      document.getElementById("code").value = code;
+      finishScanAndSearch(code);
+    }
+  }
 
+  async function finishScanAndSearch(code) {
+    setMessage("تم التقاط " + code + "، جارٍ البحث...");
 
-const scanner =
-  new Html5QrcodeScanner(
-    "reader",
-    {
-      fps: 10,
-      qrbox: {
-        width: 280,
-        height: 160
+    if (scanner && scannerRunning) {
+      try {
+        await scanner.stop();
+      } catch (error) {
+        // نتابع البحث حتى لو تعذر إيقاف الكاميرا
       }
-    },
-    false
-  );
 
+      scannerRunning = false;
+    }
 
-scanner.render(
-  onScanSuccess,
-  onScanFailure
-);
+    document.getElementById("stopButton").disabled = true;
+    document.getElementById("startButton").disabled = false;
 
+    searchAsset(code);
+  }
+
+  async function stopScanner() {
+    scanLocked = true;
+
+    if (scanner && scannerRunning) {
+      try {
+        await scanner.stop();
+      } catch (error) {
+        // تجاهل خطأ الإيقاف
+      }
+    }
+
+    scannerRunning = false;
+    document.getElementById("stopButton").disabled = true;
+    document.getElementById("startButton").disabled = false;
+
+    setMessage("تم إيقاف الكاميرا. اضغط بدء المسح لإعادة المحاولة.");
+  }
+
+  function searchManual() {
+    const code = document.getElementById("code").value.trim();
+
+    if (!code) {
+      setMessage("يرجى إدخال كود الأصل أولًا.", "error");
+      return;
+    }
+
+    scanLocked = true;
+    searchAsset(code);
+  }
+
+  function searchAsset(code) {
+    setMessage("جارٍ البحث عن " + code + "...");
+
+    const url = API_URL + "?code=" + encodeURIComponent(code);
+
+    fetch(url)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        return response.text();
+      })
+      .then(function (text) {
+        let asset;
+
+        try {
+          asset = JSON.parse(text);
+        } catch (error) {
+          throw new Error(
+            "الاستجابة ليست بيانات JSON. قد تحتاج واجهة Apps Script إلى تعديل لتقبل طلبات البحث."
+          );
+        }
+
+        if (!asset) {
+          setMessage("لم يتم العثور على الأصل: " + code, "error");
+          return;
+        }
+
+        if (asset.error) {
+          setMessage("خطأ: " + asset.error, "error");
+          return;
+        }
+
+        showAsset(asset);
+      })
+      .catch(function (error) {
+        setMessage(
+          "تعذر جلب بيانات الأصل. " + error.message,
+          "error"
+        );
+      });
+  }
+
+  function showAsset(asset) {
+    const result = document.getElementById("result");
+    result.className = "success";
+    result.replaceChildren();
+
+    const fields = [
+      ["رقم الأصل", asset.code],
+      ["الفئة", asset.category],
+      ["الوصف", asset.description],
+      ["الموقع", asset.location],
+      ["المسؤول", asset.employee],
+      ["الرقم التسلسلي", asset.serial],
+      ["تاريخ الشراء", asset.date],
+      ["القيمة (ر.س)", asset.value],
+      ["الحالة", asset.status],
+      ["ملاحظات", asset.notes]
+    ];
+
+    fields.forEach(function (field) {
+      const row = document.createElement("div");
+      row.className = "field";
+
+      const label = document.createElement("strong");
+      label.textContent = field[0] + ": ";
+
+      const value = document.createElement("span");
+      value.textContent =
+        field[1] === null || field[1] === undefined || field[1] === ""
+          ? "—"
+          : String(field[1]);
+
+      row.append(label, value);
+      result.appendChild(row);
+    });
+
+    const restartButton = document.createElement("button");
+    restartButton.textContent = "مسح أصل آخر";
+    restartButton.onclick = startScanner;
+    result.appendChild(restartButton);
+  }
 </script>
 
 </body>
 </html>
+```
